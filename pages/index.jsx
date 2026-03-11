@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, get, onValue, off } from "firebase/database";
+import { getDatabase, ref, set, get, onValue, off, push } from "firebase/database";
 
 // ── THEME ─────────────────────────────────────────────────────────────────────
 const C = {
@@ -535,14 +535,12 @@ function SquadScreen({ player }) {
 
   const sendMessage = async () => {
     if (!msgInput.trim()) return;
-    const db = initFirebase();
-    if (!db) return;
     const msg = {
       pseudo: player.pseudo,
       text: msgInput.trim(),
       at: Date.now(),
     };
-    await db.ref("op-transit/" + SK.chat + "/" + squad.code).push(msg);
+    await push(ref(_db, "op-transit/" + SK.chat + "/" + squad.code), msg);
     setMsgInput("");
   };
 
