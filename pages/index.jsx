@@ -536,6 +536,7 @@ function SquadScreen({ player }) {
   const sendMessage = async () => {
     if (!msgInput.trim()) return;
     const msg = {
+      id: player.id,
       pseudo: player.pseudo,
       text: msgInput.trim(),
       at: Date.now(),
@@ -649,7 +650,7 @@ function SquadScreen({ player }) {
               </div>
             )}
             {messages.map((msg, i) => {
-              const isMe = msg.pseudo === player.pseudo;
+              const isMe = msg.id === player.id;
               const time = new Date(msg.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
               return (
                 <div key={msg.id || i} style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", animation: "slideUp 0.2s ease" }}>
