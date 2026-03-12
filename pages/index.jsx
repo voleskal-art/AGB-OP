@@ -205,12 +205,7 @@ function ProfilDrawer({ player, onClose, onLogout, onDeleteAccount, fc }) {
           </div>
         </div>
 
-        <div style={{ padding: "0 20px 32px", display: "flex", flexDirection: "column", gap: 10 }}>
-          {/* DÉCONNEXION */}
-          <button onClick={onLogout} style={{ width: "100%", padding: "13px", background: C.red + "12", border: `1px solid ${C.red}50`, borderRadius: 6, color: C.red, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 15, letterSpacing: 2, cursor: "pointer" }}>
-            ⏻ SE DÉCONNECTER
-          </button>
-
+        <div style={{ padding: "0 20px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
           {/* SUPPRIMER LE COMPTE */}
           {!confirmDelete ? (
             <button onClick={() => setConfirmDelete(true)} style={{ width: "100%", padding: "10px", background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.muted, fontFamily: "'Share Tech Mono'", fontSize: 10, letterSpacing: 1, cursor: "pointer" }}>
@@ -228,6 +223,10 @@ function ProfilDrawer({ player, onClose, onLogout, onDeleteAccount, fc }) {
               </div>
             </div>
           )}
+          {/* DÉCONNEXION */}
+          <button onClick={onLogout} style={{ width: "100%", padding: "13px", background: C.red + "12", border: `1px solid ${C.red}50`, borderRadius: 6, color: C.red, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 15, letterSpacing: 2, cursor: "pointer" }}>
+            ⏻ SE DÉCONNECTER
+          </button>
         </div>
       </div>
     </>
@@ -1237,7 +1236,6 @@ function AdminPanel({ missions, onMissionsUpdate, timerState, onTimerUpdate, pla
                       <button onClick={() => onChangePlayerFaction(p.id)} style={{ background: pfc + "15", border: `1px solid ${pfc}40`, borderRadius: 3, padding: "4px 8px", color: pfc, fontFamily: "'Share Tech Mono'", fontSize: 9, cursor: "pointer" }}>
                         {p.faction === "DNRED" ? "→ CARTEL" : "→ DNRED"}
                       </button>
-                      <button onClick={() => onRemovePlayer(p.id)} style={{ background: C.red + "15", border: `1px solid ${C.red}30`, borderRadius: 3, padding: "4px 8px", color: C.red, fontSize: 10, cursor: "pointer" }}>✕</button>
                     </div>
                   );
                 })}
