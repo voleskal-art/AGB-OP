@@ -85,7 +85,7 @@ const STATUSES   = [
 
 // ── FIREBASE ──────────────────────────────────────────────────────────────────
 const firebaseConfig = {
-  apiKey: "AIzaSyDC9blwK_ViiyxV6k7LrErpDyELnd44FeVU",
+  apiKey: "AIzaSyDC9blwK_ViyxV6k7LrErpDyELnd44FeVU",
   authDomain: "agb-op.firebaseapp.com",
   databaseURL: "https://agb-op-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "agb-op",
