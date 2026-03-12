@@ -300,6 +300,7 @@ function AuthScreen({ onAuthSuccess }) {
 
       {/* LOGO */}
       <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <img src={AGB_LOGO} alt="AGB Airsoft" style={{ height: 110, objectFit: "contain", marginBottom: 16, filter: "drop-shadow(0 0 16px rgba(200,168,75,0.4))" }} />
         <div style={{ fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 34, letterSpacing: 4, color: C.accent }}>OP TRANSIT</div>
         <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 3 }}>COMPANION · SAISON 2026</div>
       </div>
