@@ -1447,6 +1447,7 @@ export default function App() {
   const [players, setPlayers]         = useState([]);
   const [announce, setAnnounce]       = useState(null);
   const [dismissedAt, setDismissedAt] = useState(null);
+  const loginTimeRef                  = useRef(Date.now());
   const [showProfil, setShowProfil]   = useState(false);
   const [loading, setLoading]         = useState(true);
   const [, tick]                      = useState(0);
@@ -1557,7 +1558,7 @@ export default function App() {
 
   const fc  = player ? (player.faction === "DNRED" ? C.drned : C.cartel) : C.accent;
   const NAV = player?.isAdmin ? NAV_ADMIN : NAV_PLAYER;
-  const showAnnounce = announce?.text && announce.at !== dismissedAt;
+  const showAnnounce = announce?.text && announce.at !== dismissedAt && announce.at > loginTimeRef.current;
 
   // Waiting for Firebase Auth to initialize (avoids flash of login screen)
   if (!authReady || loading) return (
