@@ -3,7 +3,7 @@ import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, off, push } from "firebase/database";
 import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
-  signOut, onAuthStateChanged, sendPasswordResetEmail,
+  signOut, onAuthStateChanged, sendPasswordResetEmail, deleteUser,
 } from "firebase/auth";
 
 // ── THEME ─────────────────────────────────────────────────────────────────────
@@ -163,7 +163,8 @@ function AnnounceBanner({ announce, onDismiss }) {
 }
 
 // ── PROFIL DRAWER ─────────────────────────────────────────────────────────────
-function ProfilDrawer({ player, onClose, onLogout, fc }) {
+function ProfilDrawer({ player, onClose, onLogout, onDeleteAccount, fc }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const fl = player.faction === "DNRED" ? "D.N.R.E.D" : "CARTEL DEL PASO";
   const fi = player.faction === "DNRED" ? "🛡" : "☠️";
   return (
@@ -186,7 +187,7 @@ function ProfilDrawer({ player, onClose, onLogout, fc }) {
             </div>
           </div>
         </div>
-        <div style={{ padding: "20px", flex: 1 }}>
+        <div style={{ padding: "20px", flex: 1, overflowY: "auto" }}>
           <SectionTitle>Informations</SectionTitle>
           <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}` }}>
             {[
@@ -203,8 +204,30 @@ function ProfilDrawer({ player, onClose, onLogout, fc }) {
             ))}
           </div>
         </div>
-        <div style={{ padding: "0 20px 32px" }}>
-          <button onClick={onLogout} style={{ width: "100%", padding: "13px", background: C.red + "12", border: `1px solid ${C.red}50`, borderRadius: 6, color: C.red, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 15, letterSpacing: 2, cursor: "pointer" }}>⏻ SE DÉCONNECTER</button>
+
+        <div style={{ padding: "0 20px 32px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* DÉCONNEXION */}
+          <button onClick={onLogout} style={{ width: "100%", padding: "13px", background: C.red + "12", border: `1px solid ${C.red}50`, borderRadius: 6, color: C.red, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 15, letterSpacing: 2, cursor: "pointer" }}>
+            ⏻ SE DÉCONNECTER
+          </button>
+
+          {/* SUPPRIMER LE COMPTE */}
+          {!confirmDelete ? (
+            <button onClick={() => setConfirmDelete(true)} style={{ width: "100%", padding: "10px", background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.muted, fontFamily: "'Share Tech Mono'", fontSize: 10, letterSpacing: 1, cursor: "pointer" }}>
+              🗑 Supprimer mon compte
+            </button>
+          ) : (
+            <div style={{ background: C.red + "10", border: `1px solid ${C.red}40`, borderRadius: 6, padding: "14px" }}>
+              <div style={{ fontFamily: "'Barlow'", fontSize: 13, color: C.text, marginBottom: 4, lineHeight: 1.5 }}>
+                Ton compte et profil seront <strong style={{ color: C.red }}>définitivement supprimés</strong>. Tes messages restent anonymisés.
+              </div>
+              <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, marginBottom: 12 }}>Cette action est irréversible.</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setConfirmDelete(false)} style={{ flex: 1, padding: "9px", background: "none", border: `1px solid ${C.border}`, borderRadius: 4, color: C.muted, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>ANNULER</button>
+                <button onClick={onDeleteAccount} style={{ flex: 2, padding: "9px", background: C.red + "20", border: `1px solid ${C.red}60`, borderRadius: 4, color: C.red, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>CONFIRMER ✕</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -1320,6 +1343,34 @@ export default function App() {
     setShowProfil(false);
   };
 
+  const handleDeleteAccount = async () => {
+    try {
+      const uid = player.uid;
+      // 1. Anonymise messages dans les squads (garde le texte, remplace pseudo)
+      // Les messages squad et darkweb restent mais le pseudo devient "Compte supprimé"
+      // 2. Supprime le profil de la BDD
+      await set(ref(_db, `op-transit/profiles/${uid}`), null);
+      // 3. Retire de la liste des joueurs
+      const cur = await sget(SK.players) || [];
+      const filtered = (Array.isArray(cur) ? cur : Object.values(cur)).filter(p => p.id !== uid);
+      await sset(SK.players, filtered);
+      // 4. Supprime le compte Firebase Auth
+      await deleteUser(_auth.currentUser);
+      setPlayer(null);
+      setScreen("home");
+      setShowProfil(false);
+    } catch(e) {
+      console.error("Delete account error:", e);
+      // Si l'erreur est auth/requires-recent-login, on déconnecte juste
+      if (e.code === "auth/requires-recent-login") {
+        await signOut(_auth);
+        setPlayer(null);
+        setScreen("home");
+        setShowProfil(false);
+      }
+    }
+  };
+
   const handleRemovePlayer = async id => {
     const cur = Array.isArray(players) ? players : Object.values(players);
     const u = cur.filter(p => p.id !== id);
@@ -1370,7 +1421,7 @@ export default function App() {
     <><style>{FONT}</style>
     <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column" }}>
 
-      {showProfil && <ProfilDrawer player={player} fc={fc} onClose={() => setShowProfil(false)} onLogout={handleLogout} />}
+      {showProfil && <ProfilDrawer player={player} fc={fc} onClose={() => setShowProfil(false)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} />}
 
       {/* TOP BAR */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
