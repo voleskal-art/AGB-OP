@@ -1296,6 +1296,13 @@ export default function App() {
         const profile = await loadProfile(firebaseUser.uid);
         if (profile) {
           setPlayer({ ...profile, uid: firebaseUser.uid });
+          // Réinscrit dans la liste joueurs si absent (reconnexion)
+          const cur = await sget(SK.players) || [];
+          const list = Array.isArray(cur) ? cur : Object.values(cur);
+          const alreadyIn = list.find(p => p.id === firebaseUser.uid);
+          if (!alreadyIn) {
+            await sset(SK.players, [...list, { id: firebaseUser.uid, pseudo: profile.pseudo, faction: profile.faction, nom: profile.nom, isAdmin: profile.isAdmin }]);
+          }
         } else {
           // Account exists in Auth but no profile (edge case) → sign out
           await signOut(_auth);
