@@ -673,6 +673,7 @@ function SquadScreen({ player }) {
     const newSquad = {
       code,
       name: squadName.trim(),
+      faction: player.faction,
       members: [{ id: player.id, pseudo: player.pseudo, role: "Chef de squad" }],
       createdAt: Date.now(),
     };
@@ -689,6 +690,10 @@ function SquadScreen({ player }) {
     const squads = await sget(SK.squads) || {};
     const found = squads[inputCode.toUpperCase()];
     if (!found) return setError("Squad introuvable — vérifie le code");
+    // Bloc faction adverse
+    if (found.faction && found.faction !== player.faction) {
+      return setError(`Cette squad est réservée à la faction ${found.faction === "DNRED" ? "D.N.R.E.D" : "CARTEL DEL PASO"}`);
+    }
     if (found.members.find(m => m.id === player.id)) {
       setSquad(found); setMode(null); setError(""); return;
     }
