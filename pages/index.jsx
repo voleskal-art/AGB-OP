@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, off, push } from "firebase/database";
+import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signOut, onAuthStateChanged, sendPasswordResetEmail, deleteUser,
@@ -94,9 +95,38 @@ const firebaseConfig = {
   appId: "1:749544028705:web:87c367a2abf97c6cab0160",
 };
 
-const _app  = initializeApp(firebaseConfig);
-const _db   = getDatabase(_app);
-const _auth = getAuth(_app);
+const _app     = initializeApp(firebaseConfig);
+const _db      = getDatabase(_app);
+const _auth    = getAuth(_app);
+const _storage = getStorage(_app);
+
+// ── MEDIA COMPRESSION & UPLOAD ────────────────────────────────────────────────
+async function compressImage(file, maxWidth = 1280, quality = 0.75) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxWidth) { height = Math.round(height * maxWidth / width); width = maxWidth; }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      canvas.toBlob(blob => { URL.revokeObjectURL(url); resolve(blob); }, "image/jpeg", quality);
+    };
+    img.src = url;
+  });
+}
+
+async function uploadMedia(file, storagePath) {
+  let blob = file;
+  const isImage = file.type.startsWith("image/");
+  const isVideo = file.type.startsWith("video/");
+  if (isImage) blob = await compressImage(file);
+  if (isVideo && file.size > 20 * 1024 * 1024) throw new Error("Vidéo trop lourde (max 20 MB)");
+  const r = sRef(_storage, storagePath);
+  await uploadBytes(r, blob);
+  return await getDownloadURL(r);
+}
 
 // ── STORAGE ───────────────────────────────────────────────────────────────────
 async function sget(key) {
@@ -629,6 +659,8 @@ function SquadScreen({ player }) {
   const [messages, setMessages]   = useState([]);
   const [msgInput, setMsgInput]   = useState("");
   const [loading, setLoading]     = useState(true);
+  const [mediaUploading, setMediaUploading] = useState(false);
+  const fileInputRef               = useRef(null);
   const messagesEndRef             = useRef(null);
   const fc = player.faction === "DNRED" ? C.drned : C.cartel;
 
@@ -727,6 +759,32 @@ function SquadScreen({ player }) {
     };
     await push(ref(_db, "op-transit/" + SK.chat + "/" + squad.code), msg);
     setMsgInput("");
+  };
+
+  const sendMedia = async (file) => {
+    if (!file) return;
+    const isImage = file.type.startsWith("image/");
+    const isVideo = file.type.startsWith("video/");
+    if (!isImage && !isVideo) return showToast("Format non supporté (image ou vidéo)", C.danger);
+    try {
+      setMediaUploading(true);
+      const ext = isImage ? "jpg" : file.name.split(".").pop();
+      const storagePath = `squad-media/${squad.code}/${Date.now()}-${player.id}.${ext}`;
+      const url = await uploadMedia(file, storagePath);
+      const msg = {
+        id: player.id,
+        pseudo: player.pseudo,
+        text: "",
+        mediaUrl: url,
+        mediaType: isImage ? "image" : "video",
+        at: Date.now(),
+      };
+      await push(ref(_db, "op-transit/" + SK.chat + "/" + squad.code), msg);
+    } catch (e) {
+      showToast(e.message || "Erreur upload", C.danger);
+    } finally {
+      setMediaUploading(false);
+    }
   };
 
   if (loading) return (
@@ -839,8 +897,14 @@ function SquadScreen({ player }) {
               return (
                 <div key={msg.id || i} style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", animation: "slideUp 0.2s ease" }}>
                   {!isMe && <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: fc, letterSpacing: 1, marginBottom: 3 }}>{msg.pseudo}</div>}
-                  <div style={{ maxWidth: "78%", background: isMe ? fc + "20" : C.card, border: `1px solid ${isMe ? fc + "50" : C.border}`, borderRadius: isMe ? "12px 12px 4px 12px" : "12px 12px 12px 4px", padding: "8px 12px" }}>
-                    <div style={{ fontFamily: "'Barlow'", fontSize: 13, color: C.text, lineHeight: 1.4 }}>{msg.text}</div>
+                  <div style={{ maxWidth: "78%", background: isMe ? fc + "20" : C.card, border: `1px solid ${isMe ? fc + "50" : C.border}`, borderRadius: isMe ? "12px 12px 4px 12px" : "12px 12px 12px 4px", padding: "8px 12px", overflow: "hidden" }}>
+                    {msg.mediaUrl && msg.mediaType === "image" && (
+                      <img src={msg.mediaUrl} alt="media" style={{ maxWidth: "100%", maxHeight: 240, borderRadius: 6, display: "block", marginBottom: msg.text ? 6 : 0 }} />
+                    )}
+                    {msg.mediaUrl && msg.mediaType === "video" && (
+                      <video src={msg.mediaUrl} controls style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 6, display: "block", marginBottom: msg.text ? 6 : 0 }} />
+                    )}
+                    {msg.text ? <div style={{ fontFamily: "'Barlow'", fontSize: 13, color: C.text, lineHeight: 1.4 }}>{msg.text}</div> : null}
                     <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 8, color: C.muted, marginTop: 4, textAlign: isMe ? "right" : "left" }}>{time}</div>
                   </div>
                 </div>
@@ -850,6 +914,10 @@ function SquadScreen({ player }) {
           </div>
           {/* Input */}
           <div style={{ padding: "10px 16px", borderTop: `1px solid ${C.border}`, background: C.surface, display: "flex", gap: 8, flexShrink: 0 }}>
+            <input ref={fileInputRef} type="file" accept="image/*,video/*" style={{ display: "none" }} onChange={e => { sendMedia(e.target.files[0]); e.target.value = ""; }} />
+            <button onClick={() => fileInputRef.current?.click()} disabled={mediaUploading} title="Envoyer photo / vidéo" style={{ padding: "10px 12px", background: C.card, border: `1px solid ${C.border}`, borderRadius: 4, color: mediaUploading ? C.muted : fc, fontSize: 16, cursor: mediaUploading ? "not-allowed" : "pointer", flexShrink: 0 }}>
+              {mediaUploading ? "⏳" : "📎"}
+            </button>
             <input
               style={{ ...inputStyle, flex: 1 }}
               placeholder="Message à ta squad..."
@@ -885,6 +953,8 @@ function DarkwebScreen({ player }) {
   const [input, setInput]         = useState("");
   const [loading, setLoading]     = useState(true);
   const [accepted, setAccepted]   = useState(false);
+  const [dwMediaUploading, setDwMediaUploading] = useState(false);
+  const dwFileInputRef             = useRef(null);
   const messagesEndRef             = useRef(null);
   const alias                      = getDarkwebAlias(player.id);
 
@@ -908,6 +978,30 @@ function DarkwebScreen({ player }) {
       at: Date.now(),
     });
     setInput("");
+  };
+
+  const sendDwMedia = async (file) => {
+    if (!file) return;
+    const isImage = file.type.startsWith("image/");
+    const isVideo = file.type.startsWith("video/");
+    if (!isImage && !isVideo) return;
+    try {
+      setDwMediaUploading(true);
+      const ext = isImage ? "jpg" : file.name.split(".").pop();
+      const storagePath = `darkweb-media/${Date.now()}-${alias}.${ext}`;
+      const url = await uploadMedia(file, storagePath);
+      await push(ref(_db, "op-transit/" + SK.darkweb), {
+        alias,
+        text: "",
+        mediaUrl: url,
+        mediaType: isImage ? "image" : "video",
+        at: Date.now(),
+      });
+    } catch (e) {
+      // silently ignore or show toast
+    } finally {
+      setDwMediaUploading(false);
+    }
   };
 
   if (!accepted) return (
@@ -977,8 +1071,14 @@ function DarkwebScreen({ player }) {
                   {msg.alias}
                 </div>
               )}
-              <div style={{ maxWidth: "80%", background: isMe ? DW.accent + "15" : DW.card, border: `1px solid ${isMe ? DW.accent + "50" : DW.border}`, borderRadius: isMe ? "10px 10px 3px 10px" : "10px 10px 10px 3px", padding: "8px 12px" }}>
-                <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 12, color: isMe ? DW.accent : DW.text, lineHeight: 1.5 }}>{msg.text}</div>
+              <div style={{ maxWidth: "80%", background: isMe ? DW.accent + "15" : DW.card, border: `1px solid ${isMe ? DW.accent + "50" : DW.border}`, borderRadius: isMe ? "10px 10px 3px 10px" : "10px 10px 10px 3px", padding: "8px 12px", overflow: "hidden" }}>
+                {msg.mediaUrl && msg.mediaType === "image" && (
+                  <img src={msg.mediaUrl} alt="media" style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 4, display: "block", marginBottom: msg.text ? 6 : 0 }} />
+                )}
+                {msg.mediaUrl && msg.mediaType === "video" && (
+                  <video src={msg.mediaUrl} controls style={{ maxWidth: "100%", maxHeight: 180, borderRadius: 4, display: "block", marginBottom: msg.text ? 6 : 0 }} />
+                )}
+                {msg.text ? <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 12, color: isMe ? DW.accent : DW.text, lineHeight: 1.5 }}>{msg.text}</div> : null}
                 <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 8, color: DW.muted, marginTop: 4, textAlign: isMe ? "right" : "left" }}>{time}</div>
               </div>
             </div>
@@ -989,6 +1089,10 @@ function DarkwebScreen({ player }) {
 
       {/* Input */}
       <div style={{ padding: "10px 16px", borderTop: `1px solid ${DW.border}`, background: DW.surface, display: "flex", gap: 8, flexShrink: 0 }}>
+        <input ref={dwFileInputRef} type="file" accept="image/*,video/*" style={{ display: "none" }} onChange={e => { sendDwMedia(e.target.files[0]); e.target.value = ""; }} />
+        <button onClick={() => dwFileInputRef.current?.click()} disabled={dwMediaUploading} title="Envoyer fichier" style={{ padding: "10px 12px", background: DW.card, border: `1px solid ${DW.border}`, borderRadius: 4, color: dwMediaUploading ? DW.muted : DW.accent, fontSize: 14, cursor: dwMediaUploading ? "not-allowed" : "pointer", flexShrink: 0, fontFamily: "'Share Tech Mono'" }}>
+          {dwMediaUploading ? "⏳" : "📎"}
+        </button>
         <div style={{ flex: 1, position: "relative" }}>
           <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontFamily: "'Share Tech Mono'", fontSize: 11, color: DW.dim, pointerEvents: "none" }}>{">"}</span>
           <input
