@@ -1050,6 +1050,36 @@ function BriefingScreen() {
   );
 }
 
+// ── MISSION FORM (hors AdminPanel pour éviter perte de focus) ─────────────────
+function MissionForm({ form, setForm, fc, saving, onSave, onCancel, saveLabel }) {
+  return (
+    <div style={{ background: C.surface, border: `1px solid ${fc}50`, borderRadius: 6, padding: 14, marginBottom: 10 }}>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, marginBottom: 5 }}>TITRE</div>
+        <input style={inputStyle} value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} placeholder="Ex: Sécuriser le point Alpha" autoFocus />
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, marginBottom: 5 }}>DESCRIPTION</div>
+        <textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical", lineHeight: 1.5 }} value={form.desc} onChange={e => setForm(f => ({ ...f, desc: e.target.value }))} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+        <div>
+          <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, marginBottom: 5 }}>PRIORITÉ</div>
+          <select style={selectStyle} value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select>
+        </div>
+        <div>
+          <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, marginBottom: 5 }}>STATUT</div>
+          <select style={selectStyle} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>{STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn outline onClick={onCancel} style={{ flex: 1 }}>ANNULER</Btn>
+        <Btn onClick={onSave} color={fc} disabled={!form.label.trim() || saving} style={{ flex: 2 }}>{saving ? "…" : saveLabel}</Btn>
+      </div>
+    </div>
+  );
+}
+
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 function AdminPanel({ missions, onMissionsUpdate, timerState, onTimerUpdate, players, onRemovePlayer, onChangePlayerFaction }) {
   const [tab, setTab]                 = useState("timer");
@@ -1090,33 +1120,6 @@ function AdminPanel({ missions, onMissionsUpdate, timerState, onTimerUpdate, pla
 
   const priorityColor = p => ({ CRITIQUE: C.red, HAUTE: C.danger, MOYENNE: C.accent, BASSE: C.muted }[p] || C.muted);
   const statusInfo    = s => ({ secured: { label: "✅ ACCOMPLI", color: C.green }, pending: { label: "⏳ EN COURS", color: C.accent }, failed: { label: "❌ ÉCHOUÉ", color: C.red } }[s] || {});
-
-  const MissionForm = ({ onSave, onCancel, saveLabel }) => (
-    <div style={{ background: C.surface, border: `1px solid ${fc}50`, borderRadius: 6, padding: 14, marginBottom: 10 }}>
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, marginBottom: 5 }}>TITRE</div>
-        <input style={inputStyle} value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} placeholder="Ex: Sécuriser le point Alpha" />
-      </div>
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, marginBottom: 5 }}>DESCRIPTION</div>
-        <textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical", lineHeight: 1.5 }} value={form.desc} onChange={e => setForm(f => ({ ...f, desc: e.target.value }))} />
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-        <div>
-          <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, marginBottom: 5 }}>PRIORITÉ</div>
-          <select style={selectStyle} value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select>
-        </div>
-        <div>
-          <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, marginBottom: 5 }}>STATUT</div>
-          <select style={selectStyle} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>{STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <Btn outline onClick={onCancel} style={{ flex: 1 }}>ANNULER</Btn>
-        <Btn onClick={onSave} color={fc} disabled={!form.label.trim() || saving} style={{ flex: 2 }}>{saving ? "…" : saveLabel}</Btn>
-      </div>
-    </div>
-  );
 
   const TABS = [{ id: "timer", label: "⏱ CHRONO" }, { id: "missions", label: "🎯 MISSIONS" }, { id: "players", label: "👥 JOUEURS" }, { id: "comms", label: "📢 COMMS" }];
 
@@ -1174,7 +1177,7 @@ function AdminPanel({ missions, onMissionsUpdate, timerState, onTimerUpdate, pla
           {!showAddForm && !editingId && (
             <button onClick={() => { setShowAddForm(true); setForm(emptyForm); }} style={{ width: "100%", padding: 11, marginBottom: 14, background: fc + "12", border: `1px dashed ${fc}60`, borderRadius: 4, color: fc, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>＋ AJOUTER UN OBJECTIF</button>
           )}
-          {showAddForm && <MissionForm onSave={addObj} onCancel={() => { setShowAddForm(false); setForm(emptyForm); }} saveLabel="AJOUTER ✓" />}
+          {showAddForm && <MissionForm form={form} setForm={setForm} fc={fc} saving={saving} onSave={addObj} onCancel={() => { setShowAddForm(false); setForm(emptyForm); }} saveLabel="AJOUTER ✓" />}
           {current.length === 0 && !showAddForm && (
             <div style={{ textAlign: "center", padding: "30px 0" }}><div style={{ fontSize: 28, marginBottom: 8 }}>📭</div><div style={{ fontFamily: "'Share Tech Mono'", fontSize: 11, color: C.muted }}>AUCUN OBJECTIF</div></div>
           )}
@@ -1183,7 +1186,7 @@ function AdminPanel({ missions, onMissionsUpdate, timerState, onTimerUpdate, pla
             return (
               <div key={obj.id} style={{ marginBottom: 8 }}>
                 {editingId === obj.id
-                  ? <MissionForm onSave={saveEdit} onCancel={() => { setEditingId(null); setForm(emptyForm); }} saveLabel="ENREGISTRER ✓" />
+                  ? <MissionForm form={form} setForm={setForm} fc={fc} saving={saving} onSave={saveEdit} onCancel={() => { setEditingId(null); setForm(emptyForm); }} saveLabel="ENREGISTRER ✓" />
                   : (
                     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderLeft: `3px solid ${st.color || C.muted}`, borderRadius: 4, padding: "12px 14px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
@@ -1464,7 +1467,7 @@ export default function App() {
       </div>
 
       {/* BOTTOM NAV */}
-      <div style={{ background: C.surface, borderTop: `1px solid ${C.border}`, display: "flex", position: "sticky", bottom: 0, zIndex: 100 }}>
+      <div style={{ background: C.surface, borderTop: `1px solid ${C.border}`, display: "flex", position: "sticky", bottom: 0, zIndex: 100, paddingBottom: "env(safe-area-inset-bottom)" }}>
         {NAV.map(n => {
           const active = screen === n.id;
           const color  = n.id === "admin" ? C.admin : n.id === "darkweb" ? "#00ff41" : fc;
