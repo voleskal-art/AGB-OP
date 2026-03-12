@@ -179,15 +179,60 @@ const Toast = ({ msg, color }) => (
 
 // ── ANNONCE BANNER ────────────────────────────────────────────────────────────
 function AnnounceBanner({ announce, onDismiss }) {
-  if (!announce?.text) return null;
+  const [remaining, setRemaining] = useState(10);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!announce?.text) return;
+    setRemaining(10);
+    setVisible(true);
+    const interval = setInterval(() => {
+      setRemaining(r => {
+        if (r <= 1) { clearInterval(interval); setVisible(false); setTimeout(onDismiss, 300); return 0; }
+        return r - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [announce?.at]);
+
+  if (!announce?.text || !visible) return null;
+  const pct = (remaining / 10) * 100;
   return (
-    <div style={{ background: C.danger + "15", borderBottom: `1px solid ${C.danger}50`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10, animation: "slideFromTop 0.3s ease" }}>
-      <span style={{ fontSize: 16, flexShrink: 0 }}>📢</span>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.danger, letterSpacing: 1, marginBottom: 2 }}>ANNONCE ADMIN</div>
-        <div style={{ fontFamily: "'Barlow'", fontSize: 13, color: C.text, lineHeight: 1.4 }}>{announce.text}</div>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.75)", animation: "fadeIn 0.25s ease" }}
+      onClick={() => { setVisible(false); setTimeout(onDismiss, 300); }}>
+      <div style={{ maxWidth: 380, width: "90%", background: C.surface, border: `2px solid ${C.danger}`, borderRadius: 10, padding: "24px 20px", boxShadow: `0 0 40px ${C.danger}40`, animation: "slideUp 0.3s ease" }}
+        onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <span style={{ fontSize: 22 }}>📢</span>
+          <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.danger, letterSpacing: 2 }}>ANNONCE ADMIN</div>
+          <div style={{ marginLeft: "auto", fontFamily: "'Share Tech Mono'", fontSize: 18, color: C.danger, fontWeight: 700, minWidth: 24, textAlign: "right" }}>{remaining}</div>
+        </div>
+        <div style={{ fontFamily: "'Barlow'", fontSize: 15, color: C.text, lineHeight: 1.6, marginBottom: 16 }}>{announce.text}</div>
+        {/* Progress bar */}
+        <div style={{ height: 3, background: C.border, borderRadius: 2, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: pct + "%", background: C.danger, borderRadius: 2, transition: "width 1s linear" }} />
+        </div>
+        <button onClick={() => { setVisible(false); setTimeout(onDismiss, 300); }} style={{ marginTop: 14, width: "100%", padding: "8px 0", background: "none", border: `1px solid ${C.border}`, borderRadius: 5, color: C.muted, fontFamily: "'Share Tech Mono'", fontSize: 10, letterSpacing: 1, cursor: "pointer" }}>
+          FERMER
+        </button>
       </div>
-      <button onClick={onDismiss} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 16, flexShrink: 0 }}>✕</button>
+    </div>
+  );
+}
+
+function Lightbox({ url, type, onClose }) {
+  useEffect(() => {
+    const handler = e => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 8000, background: "rgba(0,0,0,0.92)", display: "flex", alignItems: "center", justifyContent: "center", animation: "fadeIn 0.2s ease" }}>
+      <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#fff", fontSize: 28, cursor: "pointer", zIndex: 1 }}>✕</button>
+      <div onClick={e => e.stopPropagation()} style={{ maxWidth: "95vw", maxHeight: "90vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {type === "image" && <img src={url} alt="media" style={{ maxWidth: "95vw", maxHeight: "88vh", borderRadius: 8, boxShadow: "0 0 40px rgba(0,0,0,0.8)" }} />}
+        {type === "video" && <video src={url} controls autoPlay style={{ maxWidth: "95vw", maxHeight: "88vh", borderRadius: 8 }} />}
+      </div>
     </div>
   );
 }
@@ -660,6 +705,7 @@ function SquadScreen({ player }) {
   const [msgInput, setMsgInput]   = useState("");
   const [loading, setLoading]     = useState(true);
   const [mediaUploading, setMediaUploading] = useState(false);
+  const [lightbox, setLightbox]   = useState(null);
   const fileInputRef               = useRef(null);
   const messagesEndRef             = useRef(null);
   const fc = player.faction === "DNRED" ? C.drned : C.cartel;
@@ -899,10 +945,13 @@ function SquadScreen({ player }) {
                   {!isMe && <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: fc, letterSpacing: 1, marginBottom: 3 }}>{msg.pseudo}</div>}
                   <div style={{ maxWidth: "78%", background: isMe ? fc + "20" : C.card, border: `1px solid ${isMe ? fc + "50" : C.border}`, borderRadius: isMe ? "12px 12px 4px 12px" : "12px 12px 12px 4px", padding: "8px 12px", overflow: "hidden" }}>
                     {msg.mediaUrl && msg.mediaType === "image" && (
-                      <img src={msg.mediaUrl} alt="media" style={{ maxWidth: "100%", maxHeight: 240, borderRadius: 6, display: "block", marginBottom: msg.text ? 6 : 0 }} />
+                      <img src={msg.mediaUrl} alt="media" onClick={() => setLightbox({ url: msg.mediaUrl, type: "image" })} style={{ maxWidth: "100%", maxHeight: 240, borderRadius: 6, display: "block", marginBottom: msg.text ? 6 : 0, cursor: "zoom-in" }} />
                     )}
                     {msg.mediaUrl && msg.mediaType === "video" && (
-                      <video src={msg.mediaUrl} controls style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 6, display: "block", marginBottom: msg.text ? 6 : 0 }} />
+                      <div style={{ position: "relative", cursor: "pointer" }} onClick={() => setLightbox({ url: msg.mediaUrl, type: "video" })}>
+                        <video src={msg.mediaUrl} style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 6, display: "block", marginBottom: msg.text ? 6 : 0, pointerEvents: "none" }} />
+                        <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: "rgba(0,0,0,0.6)", borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>▶</div>
+                      </div>
                     )}
                     {msg.text ? <div style={{ fontFamily: "'Barlow'", fontSize: 13, color: C.text, lineHeight: 1.4 }}>{msg.text}</div> : null}
                     <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 8, color: C.muted, marginTop: 4, textAlign: isMe ? "right" : "left" }}>{time}</div>
@@ -912,6 +961,7 @@ function SquadScreen({ player }) {
             })}
             <div ref={messagesEndRef} />
           </div>
+          {lightbox && <Lightbox url={lightbox.url} type={lightbox.type} onClose={() => setLightbox(null)} />}
           {/* Input */}
           <div style={{ padding: "10px 16px", borderTop: `1px solid ${C.border}`, background: C.surface, display: "flex", gap: 8, flexShrink: 0 }}>
             <input ref={fileInputRef} type="file" accept="image/*,video/*" style={{ display: "none" }} onChange={e => { sendMedia(e.target.files[0]); e.target.value = ""; }} />
@@ -954,6 +1004,7 @@ function DarkwebScreen({ player }) {
   const [loading, setLoading]     = useState(true);
   const [accepted, setAccepted]   = useState(false);
   const [dwMediaUploading, setDwMediaUploading] = useState(false);
+  const [lightbox, setLightbox]   = useState(null);
   const dwFileInputRef             = useRef(null);
   const messagesEndRef             = useRef(null);
   const alias                      = getDarkwebAlias(player.id);
@@ -1073,10 +1124,13 @@ function DarkwebScreen({ player }) {
               )}
               <div style={{ maxWidth: "80%", background: isMe ? DW.accent + "15" : DW.card, border: `1px solid ${isMe ? DW.accent + "50" : DW.border}`, borderRadius: isMe ? "10px 10px 3px 10px" : "10px 10px 10px 3px", padding: "8px 12px", overflow: "hidden" }}>
                 {msg.mediaUrl && msg.mediaType === "image" && (
-                  <img src={msg.mediaUrl} alt="media" style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 4, display: "block", marginBottom: msg.text ? 6 : 0 }} />
+                  <img src={msg.mediaUrl} alt="media" onClick={() => setLightbox({ url: msg.mediaUrl, type: "image" })} style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 4, display: "block", marginBottom: msg.text ? 6 : 0, cursor: "zoom-in" }} />
                 )}
                 {msg.mediaUrl && msg.mediaType === "video" && (
-                  <video src={msg.mediaUrl} controls style={{ maxWidth: "100%", maxHeight: 180, borderRadius: 4, display: "block", marginBottom: msg.text ? 6 : 0 }} />
+                  <div style={{ position: "relative", cursor: "pointer" }} onClick={() => setLightbox({ url: msg.mediaUrl, type: "video" })}>
+                    <video src={msg.mediaUrl} style={{ maxWidth: "100%", maxHeight: 180, borderRadius: 4, display: "block", marginBottom: msg.text ? 6 : 0, pointerEvents: "none" }} />
+                    <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: "rgba(0,0,0,0.6)", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: DW.accent }}>▶</div>
+                  </div>
                 )}
                 {msg.text ? <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 12, color: isMe ? DW.accent : DW.text, lineHeight: 1.5 }}>{msg.text}</div> : null}
                 <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 8, color: DW.muted, marginTop: 4, textAlign: isMe ? "right" : "left" }}>{time}</div>
@@ -1085,6 +1139,7 @@ function DarkwebScreen({ player }) {
           );
         })}
         <div ref={messagesEndRef} />
+        {lightbox && <Lightbox url={lightbox.url} type={lightbox.type} onClose={() => setLightbox(null)} />}
       </div>
 
       {/* Input */}
