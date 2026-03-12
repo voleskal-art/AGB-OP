@@ -274,7 +274,8 @@ function AuthScreen({ onAuthSuccess }) {
       await sset(SK.players, [...cur, { id: cred.user.uid, pseudo: profile.pseudo, faction: profile.faction, nom: profile.nom, isAdmin: profile.isAdmin }]);
       onAuthSuccess(profile);
     } catch(e) {
-      setError(e.code === "auth/email-already-in-use" ? "Cet email est déjà utilisé — connecte-toi" : e.code === "auth/weak-password" ? "Mot de passe trop court (6 caractères min)" : e.code === "auth/invalid-email" ? "Format d'email invalide" : "Erreur création de compte");
+      console.error("Register error:", e.code, e.message);
+      setError(e.code === "auth/email-already-in-use" ? "Cet email est déjà utilisé — connecte-toi" : e.code === "auth/weak-password" ? "Mot de passe trop court (6 caractères min)" : e.code === "auth/invalid-email" ? "Format d'email invalide" : `Erreur: ${e.code || e.message}`);
     }
     setLoading(false);
   };
