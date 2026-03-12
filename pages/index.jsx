@@ -1233,9 +1233,7 @@ function AdminPanel({ missions, onMissionsUpdate, timerState, onTimerUpdate, pla
                         </div>
                         <div style={{ fontFamily: "'Barlow'", fontSize: 11, color: C.muted }}>{p.nom || "—"}</div>
                       </div>
-                      <button onClick={() => onChangePlayerFaction(p.id)} style={{ background: pfc + "15", border: `1px solid ${pfc}40`, borderRadius: 3, padding: "4px 8px", color: pfc, fontFamily: "'Share Tech Mono'", fontSize: 9, cursor: "pointer" }}>
-                        {p.faction === "DNRED" ? "→ CARTEL" : "→ DNRED"}
-                      </button>
+                      <Label color={pfc}>{p.faction === "DNRED" ? "🛡 DNRED" : "☠️ CARTEL"}</Label>
                     </div>
                   );
                 })}
