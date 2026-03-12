@@ -34,7 +34,22 @@ const SK = {
   announce: "op-transit-announce-v7",
   squads:   "op-transit-squads-v7",
   chat:     "op-transit-chat-v7",
+  darkweb:  "op-transit-darkweb-v7",
 };
+
+// ── DARKWEB ANON NAMES ────────────────────────────────────────────────────────
+const DW_ADJECTIVES = ["Fantôme","Spectre","Ombre","Néon","Acide","Crypto","Binaire","Sigma","Omega","Delta","Echo","Zéro","Pixel","Static","Void","Cipher","Ghost","Rogue","Nexus","Apex"];
+const DW_NOUNS      = ["7X","Null","404","Hex","0Day","Root","Shell","Proxy","Node","Wire","Byte","Flux","Sync","Port","Trace","Loop","Hash","Void","Core","Gate"];
+
+function getDarkwebAlias(playerId) {
+  // Deterministic but unrelated to real identity
+  let hash = 0;
+  for (let i = 0; i < playerId.length; i++) hash = ((hash << 5) - hash) + playerId.charCodeAt(i);
+  hash = Math.abs(hash);
+  const adj  = DW_ADJECTIVES[hash % DW_ADJECTIVES.length];
+  const noun = DW_NOUNS[Math.floor(hash / DW_ADJECTIVES.length) % DW_NOUNS.length];
+  return adj + "_" + noun;
+}
 
 const DEFAULT_MISSIONS = {
   DNRED: [
@@ -683,7 +698,147 @@ function SquadScreen({ player }) {
   );
 }
 
-// ── BRIEFING ──────────────────────────────────────────────────────────────────
+// ── DARKWEB ───────────────────────────────────────────────────────────────────
+const DW = {
+  bg:     "#020804",
+  surface:"#050f07",
+  card:   "#091209",
+  border: "#0d2b10",
+  accent: "#00ff41",
+  dim:    "#00cc33",
+  muted:  "#1a4d20",
+  text:   "#b0ffb8",
+  warn:   "#ff8800",
+};
+
+function DarkwebScreen({ player }) {
+  const [messages, setMessages]   = useState([]);
+  const [input, setInput]         = useState("");
+  const [loading, setLoading]     = useState(true);
+  const [accepted, setAccepted]   = useState(false);
+  const messagesEndRef             = useRef(null);
+  const alias                      = getDarkwebAlias(player.id);
+
+  useEffect(() => {
+    const unsub = slisten(SK.darkweb, msgs => {
+      setMessages(msgs ? Object.values(msgs).sort((a, b) => a.at - b.at) : []);
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const sendMessage = async () => {
+    if (!input.trim()) return;
+    await push(ref(_db, "op-transit/" + SK.darkweb), {
+      alias,
+      text: input.trim(),
+      at: Date.now(),
+    });
+    setInput("");
+  };
+
+  if (!accepted) return (
+    <div style={{ background: DW.bg, minHeight: "100%", padding: 20, display: "flex", flexDirection: "column", justifyContent: "center", animation: "fadeIn 0.4s ease" }}>
+      <div style={{ fontFamily: "'Share Tech Mono'", color: DW.accent, fontSize: 11, letterSpacing: 2, marginBottom: 20, lineHeight: 1.8 }}>
+        <div style={{ marginBottom: 6 }}>{">"} CONNEXION AU RÉSEAU SÉCURISÉ…</div>
+        <div style={{ marginBottom: 6 }}>{">"} CHIFFREMENT TOR : <span style={{ color: DW.dim }}>ACTIF</span></div>
+        <div style={{ marginBottom: 6 }}>{">"} MASQUAGE IDENTITÉ : <span style={{ color: DW.dim }}>OK</span></div>
+        <div style={{ marginBottom: 6 }}>{">"} VOTRE ALIAS : <span style={{ color: DW.accent, fontWeight: 700, fontSize: 13 }}>{alias}</span></div>
+        <div style={{ marginBottom: 20 }}>{">"} FACTION : <span style={{ color: DW.muted }}>███████</span></div>
+      </div>
+
+      <div style={{ background: DW.card, border: `1px solid ${DW.warn}40`, borderLeft: `3px solid ${DW.warn}`, borderRadius: 4, padding: "14px 16px", marginBottom: 20 }}>
+        <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: DW.warn, letterSpacing: 2, marginBottom: 6 }}>⚠ AVERTISSEMENT</div>
+        <div style={{ fontFamily: "'Barlow'", fontSize: 12, color: DW.text, lineHeight: 1.6 }}>
+          Ce canal est accessible par <strong style={{ color: DW.accent }}>les deux factions</strong>. Ton identité réelle et ta faction sont masquées. Tu apparaîtras sous le pseudonyme <strong style={{ color: DW.accent }}>{alias}</strong>. Utilise ce réseau pour la désinformation, les négociations secrètes ou les communications inter-factions.
+        </div>
+      </div>
+
+      <button onClick={() => setAccepted(true)} style={{ padding: "14px", background: DW.accent + "18", border: `1px solid ${DW.accent}60`, borderRadius: 4, color: DW.accent, fontFamily: "'Share Tech Mono'", fontSize: 11, letterSpacing: 3, cursor: "pointer" }}>
+        {">"} ACCEPTER ET ACCÉDER
+      </button>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 120px)", background: DW.bg, animation: "fadeIn 0.3s ease" }}>
+      {/* Header */}
+      <div style={{ background: DW.surface, borderBottom: `1px solid ${DW.border}`, borderTop: `2px solid ${DW.accent}`, padding: "10px 16px", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 8, color: DW.dim, letterSpacing: 3, marginBottom: 2 }}>
+              <span style={{ animation: "blink 0.8s infinite", display: "inline-block", marginRight: 4 }}>●</span>
+              DARKWEB · CANAL INTER-FACTION
+            </div>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 12, color: DW.accent, letterSpacing: 2 }}>TOR://OP-TRANSIT.ONION</div>
+          </div>
+          <div style={{ background: DW.card, border: `1px solid ${DW.border}`, borderRadius: 4, padding: "4px 10px", textAlign: "right" }}>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 8, color: DW.muted, letterSpacing: 1, marginBottom: 1 }}>TON ALIAS</div>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 11, color: DW.accent }}>{alias}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8, background: DW.bg }}>
+        {loading && (
+          <div style={{ textAlign: "center", padding: "30px 0", fontFamily: "'Share Tech Mono'", fontSize: 11, color: DW.dim, animation: "shimmer 1.2s infinite" }}>
+            {">"} CONNEXION…
+          </div>
+        )}
+        {!loading && messages.length === 0 && (
+          <div style={{ textAlign: "center", padding: "40px 0" }}>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: DW.muted, letterSpacing: 2, lineHeight: 2 }}>
+              <div>AUCUNE TRANSMISSION REÇUE</div>
+              <div style={{ color: DW.dim, fontSize: 9 }}>En attente de signal…</div>
+            </div>
+          </div>
+        )}
+        {messages.map((msg, i) => {
+          const isMe = msg.alias === alias;
+          const time = new Date(msg.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+          return (
+            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", animation: "slideUp 0.2s ease" }}>
+              {!isMe && (
+                <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: DW.dim, letterSpacing: 1, marginBottom: 3 }}>
+                  {msg.alias}
+                </div>
+              )}
+              <div style={{ maxWidth: "80%", background: isMe ? DW.accent + "15" : DW.card, border: `1px solid ${isMe ? DW.accent + "50" : DW.border}`, borderRadius: isMe ? "10px 10px 3px 10px" : "10px 10px 10px 3px", padding: "8px 12px" }}>
+                <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 12, color: isMe ? DW.accent : DW.text, lineHeight: 1.5 }}>{msg.text}</div>
+                <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 8, color: DW.muted, marginTop: 4, textAlign: isMe ? "right" : "left" }}>{time}</div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ padding: "10px 16px", borderTop: `1px solid ${DW.border}`, background: DW.surface, display: "flex", gap: 8, flexShrink: 0 }}>
+        <div style={{ flex: 1, position: "relative" }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontFamily: "'Share Tech Mono'", fontSize: 11, color: DW.dim, pointerEvents: "none" }}>{">"}</span>
+          <input
+            style={{ ...inputStyle, background: DW.card, border: `1px solid ${DW.border}`, color: DW.accent, fontFamily: "'Share Tech Mono'", fontSize: 12, paddingLeft: 26, width: "100%" }}
+            placeholder="Transmission chiffrée…"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && sendMessage()}
+          />
+        </div>
+        <button onClick={sendMessage} disabled={!input.trim()} style={{ padding: "10px 14px", background: input.trim() ? DW.accent + "25" : DW.card, border: `1px solid ${input.trim() ? DW.accent : DW.border}`, borderRadius: 4, color: input.trim() ? DW.accent : DW.muted, fontFamily: "'Share Tech Mono'", fontSize: 13, cursor: input.trim() ? "pointer" : "not-allowed" }}>
+          ➤
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 const OP_RULES = [
   { section: "SÉCURITÉ",            icon: "⚠️", color: C.red,    rules: ["Masque OBLIGATOIRE en zone de jeu à tout moment","FPS max : 350 en plein air, 280 en CQB","Safe zone : arme basse, doigt hors détente","HIT = bras levés + crier HIT clairement","Respect des arbitres — décision finale"] },
   { section: "GAMEPLAY",            icon: "🎯", color: C.accent, rules: ["Durée : OP 24h","Respawn : retour base en 3 minutes","Objectifs : consultez votre onglet MISSION","Pas de tir en zone safe","Communication radio autorisée"] },
@@ -952,8 +1107,8 @@ function AdminPanel({ missions, onMissionsUpdate, timerState, onTimerUpdate, pla
 }
 
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
-const NAV_PLAYER = [{ id: "home", icon: "🏠", label: "ACCUEIL" }, { id: "map", icon: "🗺", label: "CARTE" }, { id: "mission", icon: "🎯", label: "MISSION" }, { id: "squad", icon: "👥", label: "SQUAD" }, { id: "briefing", icon: "📋", label: "RÈGLES" }];
-const NAV_ADMIN  = [{ id: "home", icon: "🏠", label: "ACCUEIL" }, { id: "map", icon: "🗺", label: "CARTE"   }, { id: "admin",   icon: "⭐", label: "ADMIN"   }, { id: "squad", icon: "👥", label: "SQUAD"   }, { id: "briefing", icon: "📋", label: "RÈGLES"  }];
+const NAV_PLAYER = [{ id: "home", icon: "🏠", label: "ACCUEIL" }, { id: "map", icon: "🗺", label: "CARTE" }, { id: "mission", icon: "🎯", label: "MISSION" }, { id: "squad", icon: "👥", label: "SQUAD" }, { id: "darkweb", icon: "🕸", label: "DARKWEB" }];
+const NAV_ADMIN  = [{ id: "home", icon: "🏠", label: "ACCUEIL" }, { id: "map", icon: "🗺", label: "CARTE"   }, { id: "admin",   icon: "⭐", label: "ADMIN"   }, { id: "squad", icon: "👥", label: "SQUAD" }, { id: "darkweb", icon: "🕸", label: "DARKWEB" }];
 
 export default function App() {
   const [player, setPlayer]           = useState(null);
@@ -1038,6 +1193,7 @@ export default function App() {
     admin:    () => <AdminPanel missions={missions} onMissionsUpdate={setMissions} timerState={timerState} onTimerUpdate={setTimerState} players={players} onRemovePlayer={handleRemovePlayer} onChangePlayerFaction={handleChangePlayerFaction} />,
     squad:    () => <SquadScreen player={player} />,
     briefing: () => <BriefingScreen />,
+    darkweb:  () => <DarkwebScreen player={player} />,
   };
 
   return (
@@ -1082,7 +1238,7 @@ export default function App() {
       <div style={{ background: C.surface, borderTop: `1px solid ${C.border}`, display: "flex", position: "sticky", bottom: 0, zIndex: 100 }}>
         {NAV.map(n => {
           const active = screen === n.id;
-          const color  = n.id === "admin" ? C.admin : fc;
+          const color  = n.id === "admin" ? C.admin : n.id === "darkweb" ? "#00ff41" : fc;
           return (
             <button key={n.id} onClick={() => setScreen(n.id)} style={{ flex: 1, padding: "10px 4px 8px", background: active ? color + "12" : "none", border: "none", borderTop: `2px solid ${active ? color : "transparent"}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: "pointer" }}>
               <span style={{ fontSize: 15 }}>{n.icon}</span>
