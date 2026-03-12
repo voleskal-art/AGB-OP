@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, off, push } from "firebase/database";
+import {
+  getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  signOut, onAuthStateChanged, sendPasswordResetEmail,
+} from "firebase/auth";
 
 // ── THEME ─────────────────────────────────────────────────────────────────────
 const C = {
@@ -90,8 +94,9 @@ const firebaseConfig = {
   appId: "1:749544028705:web:87c367a2abf97c6cab0160",
 };
 
-const _app = initializeApp(firebaseConfig);
-const _db  = getDatabase(_app);
+const _app  = initializeApp(firebaseConfig);
+const _db   = getDatabase(_app);
+const _auth = getAuth(_app);
 
 // ── STORAGE ───────────────────────────────────────────────────────────────────
 async function sget(key) {
@@ -113,10 +118,11 @@ const slisten = (key, cb) => {
   } catch(e) { return () => {}; }
 };
 
-const SESSION_KEY = "op-transit-session";
-const saveSession  = p  => { try { localStorage.setItem(SESSION_KEY, JSON.stringify(p)); } catch {} };
-const loadSession  = () => { try { const s = localStorage.getItem(SESSION_KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
-const clearSession = () => { try { localStorage.removeItem(SESSION_KEY); } catch {} };
+// ── PROFILE DB ────────────────────────────────────────────────────────────────
+// Profiles stored at op-transit/profiles/{uid}
+const profileRef  = uid => ref(_db, `op-transit/profiles/${uid}`);
+const saveProfile = async (uid, data) => { try { await set(profileRef(uid), data); } catch(e) { console.error("saveProfile", e); } };
+const loadProfile = async uid => { try { const s = await get(profileRef(uid)); return s.val(); } catch { return null; } };
 
 // ── SMALL UI ──────────────────────────────────────────────────────────────────
 const Label = ({ children, color = C.accent }) => (
@@ -185,11 +191,12 @@ function ProfilDrawer({ player, onClose, onLogout, fc }) {
           <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}` }}>
             {[
               { label: "PRÉNOM / NOM", value: player.nom || "—" },
+              { label: "EMAIL",        value: player.email || "—" },
               { label: "CALLSIGN",     value: player.pseudo },
               { label: "FACTION",      value: fl },
               { label: "RÔLE",         value: player.isAdmin ? "Administrateur" : "Joueur" },
             ].map((row, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: i % 2 === 0 ? C.card : C.surface, borderBottom: i < 3 ? `1px solid ${C.border}` : "none" }}>
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: i % 2 === 0 ? C.card : C.surface, borderBottom: i < 4 ? `1px solid ${C.border}` : "none" }}>
                 <span style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, letterSpacing: 1 }}>{row.label}</span>
                 <span style={{ fontFamily: "'Barlow'", fontWeight: 500, fontSize: 13 }}>{row.value}</span>
               </div>
@@ -204,89 +211,222 @@ function ProfilDrawer({ player, onClose, onLogout, fc }) {
   );
 }
 
-// ── INSCRIPTION ───────────────────────────────────────────────────────────────
-function InscriptionScreen({ onRegister }) {
-  const [step, setStep]           = useState(1);
+// ── AUTH SCREEN ───────────────────────────────────────────────────────────────
+// mode: "login" | "register" | "reset"
+function AuthScreen({ onAuthSuccess }) {
+  const [mode, setMode]           = useState("login");
+
+  // login fields
+  const [email, setEmail]         = useState("");
+  const [password, setPassword]   = useState("");
+
+  // register extra fields
+  const [step, setStep]           = useState(1); // 1=credentials, 2=identity, 3=faction
   const [nom, setNom]             = useState("");
   const [pseudo, setPseudo]       = useState("");
   const [faction, setFaction]     = useState(null);
-  const [adminCode, setAdminCode] = useState("");
-  const [adminError, setAdminError] = useState("");
   const [factionCode, setFactionCode] = useState("");
-  const [factionError, setFactionError] = useState("");
+  const [adminCode, setAdminCode] = useState("");
   const [showAdmin, setShowAdmin] = useState(false);
 
-  const handleFinish = () => {
-    const isAdmin = adminCode.toUpperCase() === ADMIN_CODE;
-    if (adminCode && !isAdmin) { setAdminError("Code incorrect"); return; }
-    const validCode = faction === "DNRED" ? DNRED_CODE : CARTEL_CODE;
-    if (factionCode.toUpperCase() !== validCode) { setFactionError("Code faction incorrect"); return; }
-    onRegister({ nom: nom.trim(), pseudo: pseudo.trim() || "Joueur", faction, isAdmin });
+  const [error, setError]         = useState("");
+  const [info, setInfo]           = useState("");
+  const [loading, setLoading]     = useState(false);
+
+  const clearErrors = () => { setError(""); setInfo(""); };
+
+  // ── LOGIN ──
+  const handleLogin = async () => {
+    if (!email.trim() || !password) return setError("Remplis tous les champs");
+    setLoading(true); clearErrors();
+    try {
+      const cred = await signInWithEmailAndPassword(_auth, email.trim(), password);
+      const profile = await loadProfile(cred.user.uid);
+      if (!profile) { setError("Compte introuvable, recrée un compte."); setLoading(false); return; }
+      onAuthSuccess({ ...profile, uid: cred.user.uid });
+    } catch(e) {
+      setError(e.code === "auth/invalid-credential" || e.code === "auth/wrong-password" ? "Email ou mot de passe incorrect" : e.code === "auth/user-not-found" ? "Aucun compte avec cet email" : e.code === "auth/too-many-requests" ? "Trop de tentatives — réessaie plus tard" : "Erreur de connexion");
+    }
+    setLoading(false);
   };
+
+  // ── REGISTER step 1 → 2 → 3 → create ──
+  const handleRegister = async () => {
+    if (!faction) return setError("Choisis une faction");
+    const validCode = faction === "DNRED" ? DNRED_CODE : CARTEL_CODE;
+    if (factionCode.toUpperCase() !== validCode) return setError("Code faction incorrect");
+    if (adminCode && adminCode.toUpperCase() !== ADMIN_CODE) return setError("Code admin incorrect");
+    setLoading(true); clearErrors();
+    try {
+      const cred = await createUserWithEmailAndPassword(_auth, email.trim(), password);
+      const profile = {
+        uid:     cred.user.uid,
+        email:   email.trim(),
+        nom:     nom.trim(),
+        pseudo:  pseudo.trim() || "Joueur",
+        faction,
+        isAdmin: adminCode.toUpperCase() === ADMIN_CODE,
+        createdAt: Date.now(),
+      };
+      await saveProfile(cred.user.uid, profile);
+      // Register in players list
+      const cur = await sget(SK.players) || [];
+      await sset(SK.players, [...cur, { id: cred.user.uid, pseudo: profile.pseudo, faction: profile.faction, nom: profile.nom, isAdmin: profile.isAdmin }]);
+      onAuthSuccess(profile);
+    } catch(e) {
+      setError(e.code === "auth/email-already-in-use" ? "Cet email est déjà utilisé — connecte-toi" : e.code === "auth/weak-password" ? "Mot de passe trop court (6 caractères min)" : e.code === "auth/invalid-email" ? "Format d'email invalide" : "Erreur création de compte");
+    }
+    setLoading(false);
+  };
+
+  // ── RESET ──
+  const handleReset = async () => {
+    if (!email.trim()) return setError("Entre ton email");
+    setLoading(true); clearErrors();
+    try {
+      await sendPasswordResetEmail(_auth, email.trim());
+      setInfo("Email de réinitialisation envoyé ! Vérifie ta boîte.");
+    } catch(e) {
+      setError(e.code === "auth/user-not-found" ? "Aucun compte avec cet email" : "Erreur — vérifie l'email");
+    }
+    setLoading(false);
+  };
+
+  const switchMode = m => { setMode(m); setStep(1); clearErrors(); setFaction(null); setFactionCode(""); setAdminCode(""); setShowAdmin(false); };
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", padding: 24, animation: "fadeIn 0.4s ease" }}>
-      <div style={{ textAlign: "center", marginBottom: 36 }}>
+
+      {/* LOGO */}
+      <div style={{ textAlign: "center", marginBottom: 32 }}>
         <div style={{ fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 34, letterSpacing: 4, color: C.accent }}>OP TRANSIT</div>
         <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 3 }}>COMPANION · SAISON 2026</div>
       </div>
 
-      {step === 1 && (
-        <div style={{ animation: "slideUp 0.3s ease" }}>
-          <SectionTitle>Identification</SectionTitle>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
-            <div>
-              <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 1, marginBottom: 6 }}>PRÉNOM / NOM</div>
-              <input style={inputStyle} placeholder="Ex: Jean Dupont" value={nom} onChange={e => setNom(e.target.value)} />
-            </div>
-            <div>
-              <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 1, marginBottom: 6 }}>CALLSIGN (pseudo)</div>
-              <input style={inputStyle} placeholder="Ex: Ghost" value={pseudo} onChange={e => setPseudo(e.target.value)} onKeyDown={e => e.key === "Enter" && pseudo.trim() && setStep(2)} />
-            </div>
-          </div>
-          <Btn onClick={() => setStep(2)} disabled={!pseudo.trim()} style={{ width: "100%" }}>CONTINUER →</Btn>
+      {/* MODE TABS */}
+      {mode !== "reset" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", background: C.card, borderRadius: 6, border: `1px solid ${C.border}`, marginBottom: 24, overflow: "hidden" }}>
+          {["login","register"].map(m => (
+            <button key={m} onClick={() => switchMode(m)} style={{ padding: "11px", background: mode === m ? C.accent + "20" : "none", border: "none", borderBottom: `2px solid ${mode === m ? C.accent : "transparent"}`, color: mode === m ? C.accent : C.muted, fontFamily: "'Share Tech Mono'", fontSize: 10, letterSpacing: 2, cursor: "pointer" }}>
+              {m === "login" ? "🔑 CONNEXION" : "➕ NOUVEAU COMPTE"}
+            </button>
+          ))}
         </div>
       )}
 
-      {step === 2 && (
-        <div style={{ animation: "slideUp 0.3s ease" }}>
+      {/* ── CONNEXION ── */}
+      {mode === "login" && (
+        <div style={{ animation: "slideUp 0.3s ease", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 1, marginBottom: 6 }}>EMAIL</div>
+            <input style={inputStyle} type="email" placeholder="ton@email.com" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} />
+          </div>
+          <div>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 1, marginBottom: 6 }}>MOT DE PASSE</div>
+            <input style={inputStyle} type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} />
+          </div>
+          {error && <div style={{ color: C.red, fontSize: 12, fontFamily: "'Barlow'" }}>{error}</div>}
+          <Btn onClick={handleLogin} disabled={loading} style={{ width: "100%", marginTop: 4 }}>{loading ? "CONNEXION…" : "SE CONNECTER →"}</Btn>
+          <button onClick={() => switchMode("reset")} style={{ background: "none", border: "none", color: C.muted, fontFamily: "'Share Tech Mono'", fontSize: 10, letterSpacing: 1, cursor: "pointer", textAlign: "center", marginTop: 4 }}>
+            Mot de passe oublié ?
+          </button>
+        </div>
+      )}
+
+      {/* ── NOUVEAU COMPTE step 1 : credentials ── */}
+      {mode === "register" && step === 1 && (
+        <div style={{ animation: "slideUp 0.3s ease", display: "flex", flexDirection: "column", gap: 12 }}>
+          <SectionTitle>Créer un compte</SectionTitle>
+          <div>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 1, marginBottom: 6 }}>EMAIL</div>
+            <input style={inputStyle} type="email" placeholder="ton@email.com" value={email} onChange={e => setEmail(e.target.value)} />
+          </div>
+          <div>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 1, marginBottom: 6 }}>MOT DE PASSE (6 caractères min)</div>
+            <input style={inputStyle} type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} />
+          </div>
+          {error && <div style={{ color: C.red, fontSize: 12 }}>{error}</div>}
+          <Btn onClick={() => { if (!email.trim() || password.length < 6) return setError("Email valide + mot de passe 6 car. min"); clearErrors(); setStep(2); }} style={{ width: "100%", marginTop: 4 }}>CONTINUER →</Btn>
+        </div>
+      )}
+
+      {/* ── NOUVEAU COMPTE step 2 : identité ── */}
+      {mode === "register" && step === 2 && (
+        <div style={{ animation: "slideUp 0.3s ease", display: "flex", flexDirection: "column", gap: 12 }}>
+          <SectionTitle>Ton identité</SectionTitle>
+          <div>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 1, marginBottom: 6 }}>PRÉNOM / NOM</div>
+            <input style={inputStyle} placeholder="Ex: Jean Dupont" value={nom} onChange={e => setNom(e.target.value)} />
+          </div>
+          <div>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 1, marginBottom: 6 }}>CALLSIGN (pseudo)</div>
+            <input style={inputStyle} placeholder="Ex: Ghost" value={pseudo} onChange={e => setPseudo(e.target.value)} />
+          </div>
+          {error && <div style={{ color: C.red, fontSize: 12 }}>{error}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn outline onClick={() => { setStep(1); clearErrors(); }} style={{ flex: 1 }}>← RETOUR</Btn>
+            <Btn onClick={() => { if (!pseudo.trim()) return setError("Entre ton callsign"); clearErrors(); setStep(3); }} style={{ flex: 2 }}>CONTINUER →</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* ── NOUVEAU COMPTE step 3 : faction ── */}
+      {mode === "register" && step === 3 && (
+        <div style={{ animation: "slideUp 0.3s ease", display: "flex", flexDirection: "column", gap: 12 }}>
           <SectionTitle>Choisis ta faction</SectionTitle>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[
-              { id: "DNRED",  label: "D.N.R.E.D",      desc: "Forces spéciales — localiser et extraire Don Pipo",         color: C.drned,  icon: "🛡" },
+              { id: "DNRED",  label: "D.N.R.E.D",      desc: "Forces spéciales — localiser et extraire Don Pipo", color: C.drned, icon: "🛡" },
               { id: "CARTEL", label: "CARTEL DEL PASO", desc: "Paramilitaires — défendre la base et neutraliser la DNRED", color: C.cartel, icon: "☠️" },
             ].map(f => (
-              <div key={f.id} onClick={() => setFaction(f.id)} style={{ background: faction === f.id ? f.color + "15" : C.card, border: `2px solid ${faction === f.id ? f.color : C.border}`, borderRadius: 6, padding: "16px", cursor: "pointer", transition: "all 0.2s" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                  <span style={{ fontSize: 22 }}>{f.icon}</span>
-                  <span style={{ fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 18, color: f.color, letterSpacing: 2 }}>{f.label}</span>
+              <div key={f.id} onClick={() => { setFaction(f.id); setFactionCode(""); clearErrors(); }} style={{ background: faction === f.id ? f.color + "15" : C.card, border: `2px solid ${faction === f.id ? f.color : C.border}`, borderRadius: 6, padding: "14px", cursor: "pointer", transition: "all 0.2s" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 3 }}>
+                  <span style={{ fontSize: 20 }}>{f.icon}</span>
+                  <span style={{ fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 17, color: f.color, letterSpacing: 2 }}>{f.label}</span>
                 </div>
                 <div style={{ fontFamily: "'Barlow'", fontSize: 12, color: C.muted }}>{f.desc}</div>
               </div>
             ))}
           </div>
           {faction && (
-            <div style={{ marginBottom: 16 }}>
+            <div>
               <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 1, marginBottom: 6 }}>CODE D'ACCÈS FACTION</div>
-              <input style={{ ...inputStyle, fontFamily: "'Share Tech Mono'", letterSpacing: 3, borderColor: factionError ? C.red : C.border }} placeholder="••••••••" type="password" value={factionCode} onChange={e => { setFactionCode(e.target.value); setFactionError(""); }} />
-              {factionError && <div style={{ color: C.red, fontSize: 11, marginTop: 4 }}>{factionError}</div>}
+              <input style={{ ...inputStyle, fontFamily: "'Share Tech Mono'", letterSpacing: 3 }} placeholder="••••••••" type="password" value={factionCode} onChange={e => { setFactionCode(e.target.value); clearErrors(); }} />
             </div>
           )}
-          <div style={{ marginBottom: 16 }}>
+          <div>
             <div onClick={() => setShowAdmin(!showAdmin)} style={{ cursor: "pointer", marginBottom: showAdmin ? 8 : 0 }}>
               <span style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 1 }}>{showAdmin ? "▼" : "▶"} CODE ADMIN (optionnel)</span>
             </div>
             {showAdmin && (
-              <div style={{ animation: "slideUp 0.2s ease" }}>
-                <input style={{ ...inputStyle, fontFamily: "'Share Tech Mono'", letterSpacing: 3, borderColor: adminError ? C.red : C.border }} placeholder="••••••••••••" type="password" value={adminCode} onChange={e => { setAdminCode(e.target.value); setAdminError(""); }} />
-                {adminError && <div style={{ color: C.red, fontSize: 11, marginTop: 4 }}>{adminError}</div>}
-              </div>
+              <input style={{ ...inputStyle, fontFamily: "'Share Tech Mono'", letterSpacing: 3 }} placeholder="••••••••••••" type="password" value={adminCode} onChange={e => { setAdminCode(e.target.value); clearErrors(); }} />
             )}
           </div>
+          {error && <div style={{ color: C.red, fontSize: 12 }}>{error}</div>}
           <div style={{ display: "flex", gap: 8 }}>
-            <Btn outline onClick={() => setStep(1)} style={{ flex: 1 }}>← RETOUR</Btn>
-            <Btn onClick={handleFinish} disabled={!faction} color={faction === "DNRED" ? C.drned : C.cartel} style={{ flex: 2 }}>REJOINDRE L'OP ✓</Btn>
+            <Btn outline onClick={() => { setStep(2); clearErrors(); }} style={{ flex: 1 }}>← RETOUR</Btn>
+            <Btn onClick={handleRegister} disabled={loading || !faction} color={faction === "DNRED" ? C.drned : C.cartel} style={{ flex: 2 }}>{loading ? "CRÉATION…" : "REJOINDRE L'OP ✓"}</Btn>
           </div>
+        </div>
+      )}
+
+      {/* ── RESET MOT DE PASSE ── */}
+      {mode === "reset" && (
+        <div style={{ animation: "slideUp 0.3s ease", display: "flex", flexDirection: "column", gap: 12 }}>
+          <SectionTitle>Réinitialiser le mot de passe</SectionTitle>
+          <div style={{ fontFamily: "'Barlow'", fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 4 }}>
+            Entre l'email de ton compte. Tu recevras un lien pour créer un nouveau mot de passe.
+          </div>
+          <div>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 1, marginBottom: 6 }}>EMAIL</div>
+            <input style={inputStyle} type="email" placeholder="ton@email.com" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleReset()} />
+          </div>
+          {error && <div style={{ color: C.red, fontSize: 12 }}>{error}</div>}
+          {info  && <div style={{ color: C.green, fontSize: 12, fontFamily: "'Barlow'", lineHeight: 1.5 }}>{info}</div>}
+          <Btn onClick={handleReset} disabled={loading} style={{ width: "100%" }}>{loading ? "ENVOI…" : "📧 ENVOYER LE LIEN"}</Btn>
+          <button onClick={() => switchMode("login")} style={{ background: "none", border: "none", color: C.muted, fontFamily: "'Share Tech Mono'", fontSize: 10, letterSpacing: 1, cursor: "pointer", textAlign: "center" }}>
+            ← RETOUR À LA CONNEXION
+          </button>
         </div>
       )}
     </div>
@@ -1112,6 +1252,7 @@ const NAV_ADMIN  = [{ id: "home", icon: "🏠", label: "ACCUEIL" }, { id: "map",
 
 export default function App() {
   const [player, setPlayer]           = useState(null);
+  const [authReady, setAuthReady]     = useState(false); // Firebase Auth initialized
   const [screen, setScreen]           = useState("home");
   const [missions, setMissions]       = useState(DEFAULT_MISSIONS);
   const [timerState, setTimerState]   = useState(DEFAULT_TIMER);
@@ -1122,67 +1263,94 @@ export default function App() {
   const [loading, setLoading]         = useState(true);
   const [, tick]                      = useState(0);
 
-  // Restore session
-  useEffect(() => { const s = loadSession(); if (s) setPlayer(s); }, []);
-
-  // Initial load
-  // Firebase real-time listeners — instant sync for all players
+  // ── Firebase Auth state listener — restores session automatically ──
   useEffect(() => {
-    setLoading(true);
+    const unsub = onAuthStateChanged(_auth, async firebaseUser => {
+      if (firebaseUser) {
+        const profile = await loadProfile(firebaseUser.uid);
+        if (profile) {
+          setPlayer({ ...profile, uid: firebaseUser.uid });
+        } else {
+          // Account exists in Auth but no profile (edge case) → sign out
+          await signOut(_auth);
+          setPlayer(null);
+        }
+      } else {
+        setPlayer(null);
+      }
+      setAuthReady(true);
+    });
+    return unsub;
+  }, []);
+
+  // ── Realtime DB listeners ──
+  useEffect(() => {
     let ready = 0;
     const done = () => { ready++; if (ready >= 4) setLoading(false); };
     const u1 = slisten(SK.missions, m => { if (m) setMissions(m); done(); });
     const u2 = slisten(SK.timer,    t => { if (t) setTimerState(t); done(); });
-    const u3 = slisten(SK.players,  p => { if (p) setPlayers(p); done(); });
+    const u3 = slisten(SK.players,  p => { setPlayers(p ? (Array.isArray(p) ? p : Object.values(p)) : []); done(); });
     const u4 = slisten(SK.announce, a => { if (a) setAnnounce(a); done(); });
     return () => { u1(); u2(); u3(); u4(); };
   }, []);
 
-  // Local tick for smooth timer
+  // ── Smooth timer tick ──
   useEffect(() => {
     if (!timerState.running) return;
     const id = setInterval(() => tick(x => x + 1), 1000);
     return () => clearInterval(id);
   }, [timerState.running, timerState.startedAt]);
 
-  const handleRegister = async p => {
-    const np = { ...p, id: Date.now().toString(36) };
-    setPlayer(np); saveSession(np); setScreen("home");
-    const cur = await sget(SK.players) || [];
-    await sset(SK.players, [...cur, np]);
-    setPlayers(prev => [...prev, np]);
+  // ── Called after successful auth (login or register) ──
+  const handleAuthSuccess = p => {
+    setPlayer(p);
+    setScreen("home");
   };
 
   const handleLogout = async () => {
+    // Remove from online players list
     const cur = await sget(SK.players) || [];
-    await sset(SK.players, cur.filter(p => p.id !== player.id));
-    clearSession(); setPlayer(null); setScreen("home"); setShowProfil(false);
+    const filtered = (Array.isArray(cur) ? cur : Object.values(cur)).filter(p => p.id !== player.uid);
+    await sset(SK.players, filtered);
+    await signOut(_auth);
+    setPlayer(null);
+    setScreen("home");
+    setShowProfil(false);
   };
 
   const handleRemovePlayer = async id => {
-    const u = players.filter(p => p.id !== id); await sset(SK.players, u); setPlayers(u);
+    const cur = Array.isArray(players) ? players : Object.values(players);
+    const u = cur.filter(p => p.id !== id);
+    await sset(SK.players, u); setPlayers(u);
   };
 
   const handleChangePlayerFaction = async id => {
-    const u = players.map(p => p.id === id ? { ...p, faction: p.faction === "DNRED" ? "CARTEL" : "DNRED" } : p);
+    const cur = Array.isArray(players) ? players : Object.values(players);
+    const u = cur.map(p => p.id === id ? { ...p, faction: p.faction === "DNRED" ? "CARTEL" : "DNRED" } : p);
     await sset(SK.players, u); setPlayers(u);
+    // Also update persistent profile
+    await saveProfile(id, { ...(await loadProfile(id)), faction: u.find(p => p.id === id)?.faction });
   };
 
   const fc  = player ? (player.faction === "DNRED" ? C.drned : C.cartel) : C.accent;
   const NAV = player?.isAdmin ? NAV_ADMIN : NAV_PLAYER;
   const showAnnounce = announce?.text && announce.at !== dismissedAt;
 
-  if (loading) return (
+  // Waiting for Firebase Auth to initialize (avoids flash of login screen)
+  if (!authReady || loading) return (
     <><style>{FONT}</style>
     <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ fontFamily: "'Share Tech Mono'", color: C.muted, fontSize: 12, letterSpacing: 2, animation: "shimmer 1.2s infinite" }}>CHARGEMENT…</div>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+        <div style={{ fontFamily: "'Share Tech Mono'", color: C.muted, fontSize: 12, letterSpacing: 2, animation: "shimmer 1.2s infinite" }}>CHARGEMENT…</div>
+        {!authReady && <div style={{ fontFamily: "'Share Tech Mono'", color: C.border, fontSize: 9, letterSpacing: 1 }}>AUTHENTIFICATION</div>}
+      </div>
     </div></>
   );
 
   if (!player) return (
     <><style>{FONT}</style>
     <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: C.bg }}>
-      <InscriptionScreen onRegister={handleRegister} />
+      <AuthScreen onAuthSuccess={handleAuthSuccess} />
     </div></>
   );
 
@@ -1191,9 +1359,9 @@ export default function App() {
     map:      () => <MapScreen />,
     mission:  () => <MissionScreen player={player} missions={missions} />,
     admin:    () => <AdminPanel missions={missions} onMissionsUpdate={setMissions} timerState={timerState} onTimerUpdate={setTimerState} players={players} onRemovePlayer={handleRemovePlayer} onChangePlayerFaction={handleChangePlayerFaction} />,
-    squad:    () => <SquadScreen player={player} />,
+    squad:    () => <SquadScreen player={{ ...player, id: player.uid }} />,
     briefing: () => <BriefingScreen />,
-    darkweb:  () => <DarkwebScreen player={player} />,
+    darkweb:  () => <DarkwebScreen player={{ ...player, id: player.uid }} />,
   };
 
   return (
