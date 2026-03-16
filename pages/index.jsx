@@ -71,6 +71,20 @@ const DEFAULT_MISSIONS = {
 
 const DEFAULT_TIMER = { running: false, remaining: 24 * 3600, startedAt: null };
 
+// Parse "1h30", "45m", "2h", "90" → secondes
+function parseAdjust(val) {
+  const s = val.trim().toLowerCase();
+  const hm = s.match(/^(?:(\d+)h)?(?:(\d+)m?)?$/);
+  if (hm) {
+    const h = parseInt(hm[1] || 0);
+    const m = parseInt(hm[2] || 0);
+    if (h > 0 || m > 0) return h * 3600 + m * 60;
+  }
+  const num = parseInt(s);
+  if (!isNaN(num) && num > 0) return num;
+  return 0;
+}
+
 const LORE = `Les renseignements de la DGSE ont localisé une cellule paramilitaire dissidente : le CARTEL DEL PASO. Anciens mercenaires issus de conflits en Europe de l'Est, ces hommes ont formé un groupe autonome après la dissolution de leur unité en 2019, vendant leurs services au plus offrant et accumulant un arsenal conséquent.
 
 Il y a 72 heures, Don Pipo — directeur opérationnel de la DNRED INTERNATIONAL et principale menace pour le Cartel — a été intercepté et enlevé lors d'un transfert confidentiel. Les traces mènent directement au Cartel Del Paso, qui l'a exfiltré vers cette base forestière isolée.
@@ -1244,6 +1258,7 @@ function MissionForm({ form, setForm, fc, saving, onSave, onCancel, saveLabel })
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 function AdminPanel({ missions, onMissionsUpdate, timerState, onTimerUpdate, players, onRemovePlayer, onChangePlayerFaction }) {
   const [tab, setTab]                 = useState("timer");
+  const [adjustInput, setAdjustInput] = useState("");
   const [activeFaction, setActiveFaction] = useState("DNRED");
   const [editingId, setEditingId]     = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -1334,16 +1349,29 @@ function AdminPanel({ missions, onMissionsUpdate, timerState, onTimerUpdate, pla
           </div>
 
           <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, letterSpacing: 1, marginBottom: 8 }}>AJUSTER LE TEMPS</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 6 }}>
-            {[{ l: "+1min", s: 60 }, { l: "+5min", s: 300 }, { l: "+15min", s: 900 }, { l: "+30min", s: 1800 }, { l: "+1h", s: 3600 }, { l: "+6h", s: 21600 }].map(({ l, s }) => (
-              <button key={l} onClick={() => timerAdjust(s)} style={{ padding: "9px 4px", background: C.surface, border: `1px solid ${C.green}50`, borderRadius: 4, color: C.green, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{l}</button>
-            ))}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+            <input
+              style={{ ...inputStyle, flex: 1, textAlign: "center", fontFamily: "'Share Tech Mono'", fontSize: 15 }}
+              placeholder="Ex: 1h30, 45m, 90"
+              value={adjustInput}
+              onChange={e => setAdjustInput(e.target.value)}
+            />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6 }}>
-            {[{ l: "-1min", s: -60 }, { l: "-5min", s: -300 }, { l: "-15min", s: -900 }, { l: "-30min", s: -1800 }, { l: "-1h", s: -3600 }, { l: "-6h", s: -21600 }].map(({ l, s }) => (
-              <button key={l} onClick={() => timerAdjust(s)} style={{ padding: "9px 4px", background: C.surface, border: `1px solid ${C.danger}50`, borderRadius: 4, color: C.danger, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{l}</button>
-            ))}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <button onClick={() => {
+              const s = parseAdjust(adjustInput);
+              if (s > 0) { timerAdjust(s); setAdjustInput(""); }
+            }} style={{ padding: "11px", background: C.surface, border: `1px solid ${C.green}70`, borderRadius: 4, color: C.green, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+              + AJOUTER
+            </button>
+            <button onClick={() => {
+              const s = parseAdjust(adjustInput);
+              if (s > 0) { timerAdjust(-s); setAdjustInput(""); }
+            }} style={{ padding: "11px", background: C.surface, border: `1px solid ${C.danger}70`, borderRadius: 4, color: C.danger, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+              − RETIRER
+            </button>
           </div>
+          <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, marginTop: 6, textAlign: "center" }}>formats acceptés : 1h30 · 45m · 90 (secondes)</div>
         </div>
       )}
 
