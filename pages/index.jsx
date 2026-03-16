@@ -559,6 +559,41 @@ function HomeScreen({ player, timerState }) {
   const totalInitial = timerState.initial || 24 * 3600;
   const pct = Math.min(100, Math.round(((totalInitial - remaining) / totalInitial) * 100));
 
+  const [weather, setWeather] = useState(null);
+  useEffect(() => {
+    fetch("https://api.open-meteo.com/v1/forecast?latitude=49.8998&longitude=3.8241&current=temperature_2m,apparent_temperature,precipitation,weathercode,windspeed_10m,winddirection_10m&wind_speed_unit=kmh&timezone=Europe/Paris")
+      .then(r => r.json()).then(d => setWeather(d.current)).catch(() => {});
+  }, []);
+
+  const WX_ICON = c => {
+    if (c === 0) return "☀️";
+    if (c <= 2) return "🌤️";
+    if (c <= 3) return "☁️";
+    if (c <= 48) return "🌫️";
+    if (c <= 57) return "🌦️";
+    if (c <= 67) return "🌧️";
+    if (c <= 77) return "🌨️";
+    if (c <= 82) return "🌦️";
+    if (c <= 99) return "⛈️";
+    return "🌡️";
+  };
+  const WX_LABEL = c => {
+    if (c === 0) return "Ciel dégagé";
+    if (c <= 2) return "Partiellement nuageux";
+    if (c <= 3) return "Couvert";
+    if (c <= 48) return "Brouillard";
+    if (c <= 57) return "Bruine";
+    if (c <= 67) return "Pluie";
+    if (c <= 77) return "Neige";
+    if (c <= 82) return "Averses";
+    if (c <= 99) return "Orage";
+    return "—";
+  };
+  const WIND_DIR = deg => {
+    const dirs = ["N","NE","E","SE","S","SO","O","NO"];
+    return dirs[Math.round(deg / 45) % 8];
+  };
+
   return (
     <div style={{ padding: "0 0 20px", animation: "fadeIn 0.4s ease" }}>
       <div style={{ background: "#0d1117", borderBottom: `1px solid ${C.border}`, borderTop: `2px solid ${fc}`, padding: "20px 16px", marginBottom: 12 }}>
@@ -594,7 +629,7 @@ function HomeScreen({ player, timerState }) {
           { label: "OPÉRATION", value: "TRANSIT",     color: C.accent },
           { label: "TERRAIN",   value: "SAINT-ALGIS", color: C.blue   },
           { label: "FACTION",   value: player.faction, color: fc      },
-          { label: "MÉTÉO",     value: "11°C ☁️",     color: C.green  },
+          { label: "MÉTÉO",     value: weather ? `${Math.round(weather.temperature_2m)}°C ${WX_ICON(weather.weathercode)}` : "…", color: C.green },
         ].map((s, i) => (
           <Card key={i} style={{ padding: "12px", borderLeft: `2px solid ${s.color}`, animation: `slideUp 0.3s ease ${i * 0.06}s both` }}>
             <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, letterSpacing: 1, marginBottom: 4 }}>{s.label}</div>
@@ -602,6 +637,36 @@ function HomeScreen({ player, timerState }) {
           </Card>
         ))}
       </div>
+
+      {weather && (
+        <div style={{ padding: "0 16px", marginBottom: 16 }}>
+          <Card style={{ padding: "14px 16px", borderLeft: `2px solid ${C.green}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <span style={{ fontSize: 32 }}>{WX_ICON(weather.weathercode)}</span>
+              <div>
+                <div style={{ fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 22, color: C.green }}>{Math.round(weather.temperature_2m)}°C <span style={{ fontSize: 13, color: C.muted, fontWeight: 400 }}>ressenti {Math.round(weather.apparent_temperature)}°C</span></div>
+                <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 10, color: C.muted, letterSpacing: 1 }}>{WX_LABEL(weather.weathercode)}</div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 8, color: C.muted, letterSpacing: 1, marginBottom: 3 }}>VENT</div>
+                <div style={{ fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 15, color: C.text }}>{Math.round(weather.windspeed_10m)} km/h</div>
+                <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted }}>{WIND_DIR(weather.winddirection_10m)}</div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 8, color: C.muted, letterSpacing: 1, marginBottom: 3 }}>PRÉCIP.</div>
+                <div style={{ fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 15, color: C.text }}>{weather.precipitation} mm</div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 8, color: C.muted, letterSpacing: 1, marginBottom: 3 }}>LIEU</div>
+                <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted }}>ST-ALGIS</div>
+                <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 8, color: C.muted, opacity: 0.5 }}>02260</div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <div style={{ padding: "0 16px", marginBottom: 16 }}>
         <SectionTitle>Rappel sécurité</SectionTitle>
