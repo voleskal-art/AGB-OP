@@ -69,7 +69,7 @@ const DEFAULT_MISSIONS = {
   ],
 };
 
-const DEFAULT_TIMER = { running: false, remaining: 45 * 60, startedAt: null };
+const DEFAULT_TIMER = { running: false, remaining: 24 * 3600, startedAt: null };
 
 const LORE = `Les renseignements de la DGSE ont localisé une cellule paramilitaire dissidente : le CARTEL DEL PASO. Anciens mercenaires issus de conflits en Europe de l'Est, ces hommes ont formé un groupe autonome après la dissolution de leur unité en 2019, vendant leurs services au plus offrant et accumulant un arsenal conséquent.
 
@@ -539,9 +539,11 @@ function HomeScreen({ player, timerState }) {
   if (timerState.running && timerState.startedAt) {
     remaining = Math.max(0, timerState.remaining - Math.floor((Date.now() - timerState.startedAt) / 1000));
   }
-  const mm  = String(Math.floor(remaining / 60)).padStart(2, "0");
+  const hh  = String(Math.floor(remaining / 3600)).padStart(2, "0");
+  const mm  = String(Math.floor((remaining % 3600) / 60)).padStart(2, "0");
   const ss  = String(remaining % 60).padStart(2, "0");
-  const pct = Math.round(((45 * 60 - remaining) / (45 * 60)) * 100);
+  const totalInitial = timerState.initial || 24 * 3600;
+  const pct = Math.min(100, Math.round(((totalInitial - remaining) / totalInitial) * 100));
 
   return (
     <div style={{ padding: "0 0 20px", animation: "fadeIn 0.4s ease" }}>
@@ -565,7 +567,7 @@ function HomeScreen({ player, timerState }) {
           </div>
         </div>
         <div style={{ textAlign: "center" }}>
-          <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 52, color: remaining === 0 ? C.red : remaining < 300 ? C.danger : C.accent, letterSpacing: 8, lineHeight: 1, animation: remaining < 60 && timerState.running ? "pulse 1s infinite" : "none" }}>{mm}:{ss}</div>
+          <div style={{ fontFamily: "'Share Tech Mono'", fontSize: remaining >= 3600 ? 42 : 52, color: remaining === 0 ? C.red : remaining < 300 ? C.danger : C.accent, letterSpacing: 6, lineHeight: 1, animation: remaining < 60 && timerState.running ? "pulse 1s infinite" : "none" }}>{hh}:{mm}:{ss}</div>
           <div style={{ fontFamily: "'Barlow'", fontSize: 10, color: C.muted, letterSpacing: 2, marginTop: 4 }}>{remaining === 0 ? "TEMPS ÉCOULÉ" : "TEMPS RESTANT"}</div>
           <div style={{ height: 3, background: C.border, borderRadius: 2, marginTop: 10 }}>
             <div style={{ height: "100%", width: `${pct}%`, background: remaining < 300 ? C.red : C.accent, borderRadius: 2, transition: "width 1s linear" }} />
@@ -1258,13 +1260,23 @@ function AdminPanel({ missions, onMissionsUpdate, timerState, onTimerUpdate, pla
   // TIMER
   let displayRemaining = timerState.remaining;
   if (timerState.running && timerState.startedAt) displayRemaining = Math.max(0, timerState.remaining - Math.floor((Date.now() - timerState.startedAt) / 1000));
-  const dmm = String(Math.floor(displayRemaining / 60)).padStart(2, "0");
+  const dhh = String(Math.floor(displayRemaining / 3600)).padStart(2, "0");
+  const dmm = String(Math.floor((displayRemaining % 3600) / 60)).padStart(2, "0");
   const dss = String(displayRemaining % 60).padStart(2, "0");
 
-  const timerStart = async () => { const t = { running: true, remaining: timerState.remaining, startedAt: Date.now() }; await sset(SK.timer, t); onTimerUpdate(t); };
-  const timerPause = async () => { const t = { running: false, remaining: displayRemaining, startedAt: null }; await sset(SK.timer, t); onTimerUpdate(t); };
-  const timerReset = async () => { await sset(SK.timer, DEFAULT_TIMER); onTimerUpdate(DEFAULT_TIMER); };
-  const timerSet   = async m  => { const t = { running: false, remaining: m * 60, startedAt: null }; await sset(SK.timer, t); onTimerUpdate(t); };
+  const timerStart  = async () => { const t = { running: true, remaining: timerState.remaining, startedAt: Date.now(), initial: timerState.remaining }; await sset(SK.timer, t); onTimerUpdate(t); };
+  const timerPause  = async () => { const t = { running: false, remaining: displayRemaining, startedAt: null, initial: timerState.initial || timerState.remaining }; await sset(SK.timer, t); onTimerUpdate(t); };
+  const timerReset  = async () => { await sset(SK.timer, DEFAULT_TIMER); onTimerUpdate(DEFAULT_TIMER); };
+  const timerSetSec = async s  => { const t = { running: false, remaining: s, startedAt: null, initial: s }; await sset(SK.timer, t); onTimerUpdate(t); };
+  const timerAdjust = async s  => {
+    const newVal = Math.max(0, displayRemaining + s);
+    const base = timerState.initial || timerState.remaining;
+    const newInitial = timerState.running ? base : newVal;
+    const t = timerState.running
+      ? { running: true, remaining: newVal, startedAt: Date.now(), initial: newInitial }
+      : { running: false, remaining: newVal, startedAt: null, initial: newInitial };
+    await sset(SK.timer, t); onTimerUpdate(t);
+  };
 
   // ANNONCE
   const sendAnnounce = async () => { if (!announceText.trim()) return; await sset(SK.announce, { text: announceText.trim(), at: Date.now() }); setAnnounceText(""); showToast("📢 Annonce envoyée !"); };
@@ -1302,21 +1314,34 @@ function AdminPanel({ missions, onMissionsUpdate, timerState, onTimerUpdate, pla
         <div style={{ padding: "0 16px", animation: "fadeIn 0.3s ease" }}>
           <SectionTitle color={C.admin}>Contrôle du chronomètre</SectionTitle>
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: "24px 16px", textAlign: "center", marginBottom: 16 }}>
-            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 56, color: timerState.running ? C.accent : C.muted, letterSpacing: 8, lineHeight: 1 }}>{dmm}:{dss}</div>
+            <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 48, color: timerState.running ? C.accent : C.muted, letterSpacing: 6, lineHeight: 1 }}>{dhh}:{dmm}:{dss}</div>
             <div style={{ fontFamily: "'Barlow'", fontSize: 11, color: C.muted, marginTop: 6 }}>{timerState.running ? "🟢 EN COURS — visible par tous" : "⏸ EN PAUSE"}</div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
             {!timerState.running
               ? <Btn onClick={timerStart} color={C.green} style={{ gridColumn: "span 2" }}>▶ DÉMARRER</Btn>
               : <Btn onClick={timerPause} color={C.danger} style={{ gridColumn: "span 2" }}>⏸ PAUSE</Btn>}
-            <Btn onClick={timerReset} outline>↺ RESET</Btn>
+            <Btn onClick={timerReset} outline>↺ RESET 24h</Btn>
           </div>
+
           <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, letterSpacing: 1, marginBottom: 8 }}>DURÉE PRÉDÉFINIE</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6 }}>
-            {[15, 30, 45, 60].map(min => (
-              <button key={min} onClick={() => timerSet(min)} style={{ padding: "10px 6px", background: timerState.remaining === min * 60 && !timerState.running ? C.admin + "20" : C.surface, border: `1px solid ${timerState.remaining === min * 60 && !timerState.running ? C.admin : C.border}`, borderRadius: 4, color: timerState.remaining === min * 60 && !timerState.running ? C.admin : C.muted, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 16, cursor: "pointer" }}>
-                {min}<span style={{ fontSize: 10 }}>m</span>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginBottom: 16 }}>
+            {[{ l: "1h", s: 3600 }, { l: "6h", s: 6*3600 }, { l: "12h", s: 12*3600 }, { l: "24h", s: 24*3600 }].map(({ l, s }) => (
+              <button key={l} onClick={() => timerSetSec(s)} style={{ padding: "10px 6px", background: timerState.remaining === s && !timerState.running ? C.admin + "20" : C.surface, border: `1px solid ${timerState.remaining === s && !timerState.running ? C.admin : C.border}`, borderRadius: 4, color: timerState.remaining === s && !timerState.running ? C.admin : C.muted, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 16, cursor: "pointer" }}>
+                {l}
               </button>
+            ))}
+          </div>
+
+          <div style={{ fontFamily: "'Share Tech Mono'", fontSize: 9, color: C.muted, letterSpacing: 1, marginBottom: 8 }}>AJUSTER LE TEMPS</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 6 }}>
+            {[{ l: "+1min", s: 60 }, { l: "+5min", s: 300 }, { l: "+15min", s: 900 }, { l: "+30min", s: 1800 }, { l: "+1h", s: 3600 }, { l: "+6h", s: 21600 }].map(({ l, s }) => (
+              <button key={l} onClick={() => timerAdjust(s)} style={{ padding: "9px 4px", background: C.surface, border: `1px solid ${C.green}50`, borderRadius: 4, color: C.green, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{l}</button>
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6 }}>
+            {[{ l: "-1min", s: -60 }, { l: "-5min", s: -300 }, { l: "-15min", s: -900 }, { l: "-30min", s: -1800 }, { l: "-1h", s: -3600 }, { l: "-6h", s: -21600 }].map(({ l, s }) => (
+              <button key={l} onClick={() => timerAdjust(s)} style={{ padding: "9px 4px", background: C.surface, border: `1px solid ${C.danger}50`, borderRadius: 4, color: C.danger, fontFamily: "'Rajdhani'", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{l}</button>
             ))}
           </div>
         </div>
